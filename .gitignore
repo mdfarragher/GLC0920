@@ -1,0 +1,9 @@
+**/.vscode
+**/bin
+**/obj
+**/.ipynb_checkpoints/
+LoadingData/CaliforniaHousing/data.png
+Regression/TaxiFarePrediction/yellow_tripdata_2018-12.csv
+MulticlassClassification/DigitRecognition/mnist_test.csv
+MulticlassClassification/DigitRecognition/mnist_train.csv
+NeuralNetworks/ObjectDetection/models/
