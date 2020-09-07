@@ -2,11 +2,9 @@
 
 In this assignment you're going to build an app that can predict the heart disease risk in a group of patients.
 
-The first thing you will need for your app is a data file with patients, their medical info, and their heart disease risk assessment. We're going to use the famous [UCI Heart Disease Dataset](https://archive.ics.uci.edu/ml/datasets/heart+Disease) which has real-life data from 303 patients.
+Let's start by downloading the dataset. Grab the [Cleveland Heart Disease Training](https://raw.githubusercontent.com/mdfarragher/GLC0920/master/AutoML/HeartDiseasePrediction/processed_cleveland_train.csv) and [Cleveland Heart Disease Testing](https://raw.githubusercontent.com/mdfarragher/GLC0920/master/AutoML/HeartDiseasePrediction/processed_cleveland_test.csv) datasets and save them as **processed_cleveland_train.csv** and **processed_cleveland_test.csv** respectively. 
 
-Download the [Processed Cleveland Data](https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data) file and save it as **processed.cleveland.data.csv**.
-
-The data file looks like this:
+The data files look like this:
 
 ![Processed Cleveland Data](./assets/data.png)
 
@@ -25,9 +23,9 @@ It’s a CSV file with 14 columns of information:
 * Slope of the peak exercise ST segment: 1 = up-sloping, 2 = flat, 3 = down-sloping
 * Number of major vessels (0–3) colored by fluoroscopy
 * Thallium heart scan results: 3 = normal, 6 = fixed defect, 7 = reversible defect
-* Diagnosis of heart disease: 0 = normal risk, 1-4 = elevated risk
+* Diagnosis of heart disease: 0 = normal risk, 1 = elevated risk
 
-The first 13 columns are patient diagnostic information, and the last column is the diagnosis: 0 means a healthy patient, and values 1-4 mean an elevated risk of heart disease.
+The first 13 columns are patient diagnostic information, and the last column is the diagnosis: 0 means a healthy patient, and 1 means an elevated risk of heart disease.
 
 You are going to build a binary classification machine learning model that reads in all 13 columns of patient information, and then makes a prediction for the heart disease risk.
 
@@ -42,7 +40,7 @@ Now install the following ML.NET packages:
 
 ```bash
 $ dotnet add package Microsoft.ML
-$ dotnet add package Microsoft.ML.FastTree
+$ dotnet add package Microsoft.ML.AutoML
 ```
 
 Now you are ready to add some classes. You’ll need one to hold patient info, and one to hold your model predictions.
@@ -54,6 +52,7 @@ using System;
 using System.IO;
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Microsoft.ML.AutoML;
 
 namespace Heart
 {
@@ -75,7 +74,7 @@ namespace Heart
         [LoadColumn(10)] public float Slope { get; set; }
         [LoadColumn(11)] public float Ca { get; set; }
         [LoadColumn(12)] public float Thal { get; set; }
-        [LoadColumn(13)] public int RawLabel { get; set; }
+        [LoadColumn(13)] public bool Label { get; set; }
     }
 
     /// <summary>
@@ -95,36 +94,6 @@ The **HeartData** class holds one single patient record. Note how each field is 
 
 There's also a **HeartPrediction** class which will hold a single heart disease prediction. There's a boolean **Prediction**, a **Probability** value, and the **Score** the model will assign to the prediction.
 
-Now look at the final column in the data file. Our label is an integer value between 0-4, with 0 meaning 'no risk' and 1-4 meaning 'elevated risk'. 
-
-But you're building a Binary Classifier which means your model needs to be trained on boolean labels.
-
-So you'll have to somehow convert the 'raw' numeric label (stored in the **RawLabel** field) to a boolean value. 
-
-To set that up, you'll need two helper classes:
-
-```csharp
-/// <summary>
-/// The FromLabel class is a helper class for a column transformation.
-/// </summary>
-public class FromLabel
-{
-    public int RawLabel;
-}
-
-/// <summary>
-/// The ToLabel class is a helper class for a column transformation.
-/// </summary>
-public class ToLabel
-{
-    public bool Label;
-}
-
-// the rest of the code goes here....
-```
-
-Note the **FromLabel** class that contains the 'raw' unprocessed numeric label value, and the **ToLabel** class that contains the final boolean label value. 
-
 Now you're going to load the training data in memory:
 
 ```csharp
@@ -134,7 +103,8 @@ Now you're going to load the training data in memory:
 public class Program
 {
     // filenames for training and test data
-    private static string dataPath = Path.Combine(Environment.CurrentDirectory, "processed.cleveland.data.csv");
+        private static string trainDataPath = Path.Combine(Environment.CurrentDirectory, "processed_cleveland_train.csv");
+        private static string testDataPath = Path.Combine(Environment.CurrentDirectory, "processed_cleveland_test.csv");
 
     /// <summary>
     /// The main applicaton entry point.
@@ -147,75 +117,43 @@ public class Program
 
         // load data
         Console.WriteLine("Loading data...");
-        var data = context.Data.LoadFromTextFile<HeartData>(dataPath, hasHeader: false, separatorChar: ',');
-
-        // split the data into a training and test partition
-        var partitions = context.Data.TrainTestSplit(data, testFraction: 0.2);
+        var trainData = context.Data.LoadFromTextFile<HeartData>(trainDataPath, hasHeader: true, separatorChar: ',');
+        var testData = context.Data.LoadFromTextFile<HeartData>(testDataPath, hasHeader: true, separatorChar: ',');
 
         // the rest of the code goes here....
     }
 }
 ```
-This code uses the method **LoadFromTextFile** to load the CSV data directly into memory. The class field annotations tell the method how to store the loaded data in the **HeartData** class.
+This code uses the method **LoadFromTextFile** to load the CSV data files directly into memory. The class field annotations tell the method how to store the loaded data in the **HeartData** class.
 
-The **TrainTestSplit** method then splits the data into a training partition with 80% of the data and a test partition with 20% of the data.
-
-Now you’re ready to start building the machine learning model:
+Now you’re ready to start auto-training the machine learning model:
 
 ```csharp
-// set up a training pipeline
-// step 1: convert the label value to a boolean
-var pipeline = context.Transforms.CustomMapping<FromLabel, ToLabel>(
-        (input, output) => { output.Label = input.RawLabel > 0; },
-        "LabelMapping"
-    )
+// run an automl experiment on the training data
+uint timeout = 60;
+Console.WriteLine($"Discovering models for {timeout} seconds...");
+var results = context
+    .Auto()
+    .CreateBinaryClassificationExperiment(timeout)
+    .Execute(trainData, "Label");
+Console.WriteLine($"  Best model is: {results.BestRun.TrainerName}");
 
-    // step 2: concatenate all feature columns
-    .Append(context.Transforms.Concatenate(
-    "Features", 
-    "Age", 
-    "Sex", 
-    "Cp", 
-    "TrestBps",
-    "Chol", 
-    "Fbs", 
-    "RestEcg", 
-    "Thalac", 
-    "Exang", 
-    "OldPeak", 
-    "Slope", 
-    "Ca", 
-    "Thal"))
-
-    // step 3: set up a fast tree learner
-    .Append(context.BinaryClassification.Trainers.FastTree(
-        labelColumnName: "Label", 
-        featureColumnName: "Features"));
-
-// train the model
-Console.WriteLine("Training model...");
-var model = pipeline.Fit(partitions.TrainSet);
 
 // the rest of the code goes here....
 ```
-Machine learning models in ML.NET are built with pipelines, which are sequences of data-loading, transformation, and learning components.
 
-This pipeline has the following components:
+The **Auto().CreateBinaryClassificationExperiment** method sets up an AutoML machine learning experiment using binary classification. The AutoML engine will try out different combinations of data processing pipelines and training algorithms, and tweak hyperparameters until it finds an optimal solution for the dataset. 
 
-* A **CustomMapping** that transforms the numeric label to a boolean value. We define 0 values as healthy, and anything above 0 as an elevated risk.
-* **Concatenate** which combines all input data columns into a single column called 'Features'. This is a required step because ML.NET can only train on a single input column.
-* A **FastTree** classification learner which will train the model to make accurate predictions.
+Note the timeout **parameter** which specifies that we give the AutoML engine 60 seconds to find a solution. 
 
-The **FastTreeBinaryClassificationTrainer** is a very nice training algorithm that uses gradient boosting, a machine learning technique for classification problems.
+After the experiment has completed, the best result is available in the **BestRun** property and we can use it to display **TrainerName**: the name of the training algorithm in the best performing machine learning pipeline.   
 
-With the pipeline fully assembled, you can train the model with a call to **Fit**.
-
-You now have a fully- trained model. So now it's time to take the test partition, predict the diagnosis for each patient, and calculate the accuracy metrics of the model:
+You now have a fully- trained model discovered by AutoML with optimal hyperparameters for the training dataset. So now it's time to take the test data, predict the diagnosis for each patient, and calculate the accuracy metrics of the model:
 
 ```csharp
 // make predictions for the test data set
 Console.WriteLine("Evaluating model...");
-var predictions = model.Transform(partitions.TestSet);
+var predictions = results.BestRun.Model.Transform(testData);
 
 // compare the predictions with the ground truth
 var metrics = context.BinaryClassification.Evaluate(
@@ -239,7 +177,7 @@ Console.WriteLine();
 // the rest of the code goes here....
 ```
 
-This code calls **Transform** to set up a diagnosis for every patient in the set, and **Evaluate** to compare these predictions to the ground truth and automatically calculate all evaluation metrics:
+This code grabs the best performing model in **BestRun.Model** and calls **Transform** to set up a diagnosis for every patient in the set, and **Evaluate** to compare these predictions to the ground truth and automatically calculate all evaluation metrics:
 
 * **Accuracy**: this is the number of correct predictions divided by the total number of predictions.
 * **AreaUnderRocCurve**: a metric that indicates how accurate the model is: 0 = the model is wrong all the time, 0.5 = the model produces random output, 1 = the model is correct all the time. An AUC of 0.8 or higher is considered good.
@@ -261,7 +199,7 @@ To wrap up, You’re going to create a new patient record and ask the model to m
 ```csharp
 // set up a prediction engine
 Console.WriteLine("Making a prediction for a sample patient...");
-var predictionEngine = context.Model.CreatePredictionEngine<HeartData, HeartPrediction>(model);
+var predictionEngine = context.Model.CreatePredictionEngine<HeartData, HeartPrediction>(results.BestRun.Model);
 
 // create a sample patient
 var heartData = new HeartData()
