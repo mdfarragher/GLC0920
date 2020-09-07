@@ -7,3 +7,6 @@ Regression/TaxiFarePrediction/yellow_tripdata_2018-12.csv
 MulticlassClassification/DigitRecognition/mnist_test.csv
 MulticlassClassification/DigitRecognition/mnist_train.csv
 NeuralNetworks/ObjectDetection/models/
+AutoML/TaxiFarePrediction/SampleRegression/
+AutoML/TaxiFarePrediction/assets/hall_of_fame.png
+AutoML/TaxiFarePrediction/yellow_tripdata_2018-12.csv
